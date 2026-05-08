@@ -12,7 +12,6 @@
             display: flex; justify-content: center; align-items: center; height: 100vh;
         }
 
-        /* ゲーム画面の外枠 */
         #game-container { 
             position: relative; width: 400px; height: 700px; 
             background: #dbd2bf; border: 4px solid #5d4037; 
@@ -20,30 +19,21 @@
             box-shadow: 0 10px 40px rgba(0,0,0,0.2);
         }
 
-        /* 見える土台 */
-        #base-platform {
-            position: absolute;
-            bottom: 110px;
-            left: 50px;
-            width: 300px;
-            height: 30px;
-            background: #8d6e63;
-            border: 3px solid #5d4037;
-            border-radius: 8px;
-            z-index: 5;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        /* ボーダーライン */
+        #limit-line {
+            position: absolute; top: 180px; left: 50px; width: 300px;
+            border-top: 3px dashed #e57373; z-index: 5; display: none;
         }
 
-        /* フルーツのHTML要素 */
+        #base-platform {
+            position: absolute; bottom: 110px; left: 50px; width: 300px; height: 30px;
+            background: #8d6e63; border: 3px solid #5d4037; border-radius: 8px;
+            z-index: 5; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
         .fruit-element {
-            position: absolute;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            pointer-events: none;
-            z-index: 10;
-            will-change: transform;
-            line-height: 1;
+            position: absolute; display: flex; justify-content: center; align-items: center;
+            pointer-events: none; z-index: 10; will-change: transform; line-height: 1;
         }
 
         #score-ui { 
@@ -51,8 +41,8 @@
             font-size: 48px; font-weight: bold; color: #5d4037; z-index: 50; pointer-events: none; 
         }
 
-        /* スタート画面 */
-        #start-screen {
+        /* 画面共通スタイル */
+        #start-screen, #result-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(226, 217, 200, 0.98);
             display: flex; flex-direction: column; justify-content: center; align-items: center;
@@ -69,7 +59,6 @@
         }
         .btn-main:active { transform: translateY(2px); box-shadow: 0 2px #5d4037; }
 
-        /* 操作パネル */
         #controls {
             position: absolute; bottom: 25px; width: 100%;
             display: flex; justify-content: center; gap: 20px; z-index: 60;
@@ -82,7 +71,6 @@
         }
         .ctrl-btn:active { transform: translateY(2px); box-shadow: none; }
         
-        /* 投入ガイドの絵文字 */
         #guide-emoji {
             position: absolute; top: 70px; font-size: 40px; z-index: 5;
             transition: left 0.1s ease-out;
@@ -94,16 +82,21 @@
 <div id="game-container">
     <div id="score-ui">0</div>
     <div id="guide-emoji">🍓</div>
+    <div id="limit-line"></div>
     <div id="base-platform"></div>
 
+    <!-- スタート画面 -->
     <div id="start-screen">
         <h1>くだもの<br>もりもり</h1>
-        <p class="rule">
-            🍓→🍇→🍎→🍍→🍉
-            
-
-        </p>
+        <p class="rule">🍓→🍇→🍎→🍍→🍉<br>カゴからはみ出さないように！</p>
         <button class="btn-main" onclick="startGame()">START</button>
+    </div>
+
+    <!-- リザルト画面 -->
+    <div id="result-screen" style="display: none;">
+        <h1>GAME OVER</h1>
+        <p id="final-score" style="font-size: 24px; color: #5d4037; margin-bottom: 20px;"></p>
+        <button class="btn-main" onclick="location.reload()">RETRY</button>
     </div>
 
     <div id="controls">
@@ -114,59 +107,82 @@
 </div>
 
 <script>
-// --- 果物データ（🍎のサイズを🍇と同じ26に調整） ---
 const FRUIT_DEFS = [
-    { label: '🍓', type: 'circle', radius: 18 }, // 0
-    { label: '🍇', type: 'circle', radius: 26 }, // 1
-    { label: '🍎', type: 'circle', radius: 26 }, // 2: 🍇と同じサイズに縮小
-    { label: '🍍', type: 'rect',   w: 55, h: 75 }, // 3
-    { label: '🍉', type: 'rect',   w: 95, h: 75 }, // 4
-    { label: '😊', type: 'circle', radius: 65 }  // 5
+    { label: '🍓', type: 'circle', radius: 18 },
+    { label: '🍇', type: 'circle', radius: 26 },
+    { label: '🍎', type: 'circle', radius: 26 },
+    { label: '🍍', type: 'rect',   w: 55, h: 75 },
+    { label: '🍉', type: 'rect',   w: 95, h: 75 },
+    { label: '😊', type: 'circle', radius: 65 } 
 ];
 
-const { Engine, Runner, Bodies, Composite, Events, Collision, Body } = Matter;
+const { Engine, Runner, Bodies, Composite, Events, Collision } = Matter;
 
 let engine, runner;
 const width = 400;
 const height = 700;
+const LIMIT_Y = 180; // ボーダーラインの高さ
 let score = 0;
 let currentX = 200;
 let gameState = 'START';
 let nextFruitIdx = 0;
+let gameOverTimer = 0;
 
 const fruitMap = new Map();
 let mergeQueue = [];
 
 function startGame() {
     document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('limit-line').style.display = 'block';
     gameState = 'PLAYING';
     pickNext();
 
     engine = Engine.create();
     runner = Runner.create();
 
+    // カゴの土台（左右の壁はないので、端に行くと落ちます）
     const floor = Bodies.rectangle(200, 575, 300, 30, {
-        isStatic: true, friction: 0.8, render: { fillStyle: 'transparent' }
+        isStatic: true, friction: 0.8, label: 'floor'
     });
-
-    const wallL = Bodies.rectangle(25, height/2, 50, height, { isStatic: true });
-    const wallR = Bodies.rectangle(375, height/2, 50, height, { isStatic: true });
     
-    Composite.add(engine.world, [floor, wallL, wallR]);
+    Composite.add(engine.world, [floor]);
 
     Events.on(engine, 'afterUpdate', () => {
+        if (gameState !== 'PLAYING') return;
+
+        let isOverLimit = false;
+
         fruitMap.forEach((el, body) => {
             const { x, y } = body.position;
             el.style.transform = `translate(${x}px, ${y}px) rotate(${body.angle}rad)`;
+
+            // 1. 画面外（カゴから落ちた）判定
+            if (y > height || x < -50 || x > width + 50) {
+                removeFruit(body);
+                return;
+            }
+
+            // 2. ボーダーライン判定（静止に近い状態でラインを超えているか）
+            if (y < LIMIT_Y && body.velocity.y < 0.1) {
+                isOverLimit = true;
+            }
         });
 
+        // ラインを超え続けて3秒（約180フレーム）でゲームオーバー
+        if (isOverLimit) {
+            gameOverTimer++;
+            if (gameOverTimer > 180) endGame();
+        } else {
+            gameOverTimer = 0;
+        }
+
+        // マージ処理
         if (mergeQueue.length > 0) {
             mergeQueue.forEach(task => {
                 const targets = task.bodies;
                 if (targets.every(b => Composite.allBodies(engine.world).includes(b))) {
                     const midX = targets.reduce((s, b) => s + b.position.x, 0) / targets.length;
                     const midY = targets.reduce((s, b) => s + b.position.y, 0) / targets.length;
-                    
                     targets.forEach(b => removeFruit(b));
                     addFruit(midX, midY, task.nextIdx, task.isMega, task.forceSmile);
                     updateScore(task.score);
@@ -179,7 +195,6 @@ function startGame() {
     Events.on(engine, 'collisionStart', (event) => {
         event.pairs.forEach((pair) => {
             const { bodyA, bodyB } = pair;
-            
             if (bodyA.fIdx !== undefined && bodyA.fIdx === bodyB.fIdx) {
                 const idx = bodyA.fIdx;
                 if (idx === 4 && bodyA.isMega && bodyB.isMega) {
@@ -199,6 +214,13 @@ function startGame() {
     Runner.run(runner, engine);
 }
 
+function endGame() {
+    gameState = 'GAMEOVER';
+    document.getElementById('result-screen').style.display = 'flex';
+    document.getElementById('final-score').innerText = "SCORE: " + score;
+    Runner.stop(runner);
+}
+
 function findContactGroup(body, visited) {
     visited.add(body);
     const others = Composite.allBodies(engine.world).filter(b => b.fIdx === 4 && !b.isMega && !visited.has(b));
@@ -214,8 +236,7 @@ function addFruit(x, y, idx, isMega = false, forceSmile = false) {
     const scale = isMega ? 1.7 : 1.0;
     
     const opt = { 
-        restitution: 0.1, 
-        friction: 0.5,
+        restitution: 0.1, friction: 0.5,
         density: (finalIdx + 1) * 0.001 
     };
 
@@ -284,4 +305,3 @@ function updateScore(v) {
 </script>
 </body>
 </html>
-
